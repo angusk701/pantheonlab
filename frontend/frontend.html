@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas Video Player</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        canvas {
+            border: 1px solid #333;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            cursor: pointer;
+        }
+        .instructions {
+            position: fixed;
+            bottom: 20px;
+            text-align: center;
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <canvas id="videoCanvas" width="1280" height="720"></canvas>
+        <div class="instructions">Click to play/pause | Double-click to stop</div>
+    </div>
+
+    <script>
+        // Scene data
+        const scenes = [
+            {
+                index: 0,
+                sentence: "This is a simple Javascript test",
+                textPosition: "middle-center",
+                textAnimation: "typing",
+                media: "https://miro.medium.com/max/1024/1*OK8xc3Ic6EGYg2k6BeGabg.jpeg",
+                duration: 3,
+            },
+            {
+                index: 1,
+                sentence: "Here comes the video!",
+                textPosition: "top-right",
+                textAnimation: "blink",
+                media: "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                duration: 5,
+            }
+        ];
+
+        // Canvas setup
+        const canvas = document.getElementById('videoCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Player state
+        let currentSceneIndex = 0;
+        let playerState = 'stopped'; // 'playing', 'paused', 'stopped'
+        let sceneStartTime = 0;
+        let pausedTime = 0;
+        let animationFrameId = null;
+        
+        // Animation state
+        let typingProgress = 0;
+        let blinkState = true;
+        let lastBlinkTime = 0;
+        
+        // Media elements
+        const imageElements = {};
+        const videoElement = document.createElement('video');
+        videoElement.muted = true;
+        
+        // Preload media
+        function preloadMedia() {
+            // Preload images
+            scenes.forEach(scene => {
+                if (!scene.media.includes('video')) {
+                    const img = new Image();
+                    img.src = scene.media;
+                    imageElements[scene.index] = img;
+                }
+            });
+            
+            // Preload video
+            const videoScene = scenes.find(scene => scene.media.includes('video'));
+            if (videoScene) {
+                videoElement.src = videoScene.media;
+                videoElement.load();
+            }
+        }
+        
+        // Get text position coordinates
+        function getTextPosition(position, text) {
+            const metrics = ctx.measureText(text);
+            const textWidth = metrics.width;
+            const textHeight = parseInt(ctx.font); // Approximate height
+            
+            switch(position) {
+                case 'middle-center':
+                    return {
+                        x: canvas.width / 2 - textWidth / 2,
+                        y: canvas.height / 2
+                    };
+                case 'top-right':
+                    return {
+                        x: canvas.width - textWidth - 20,
+                        y: 40
+                    };
+                default:
+                    return { x: 20, y: 40 };
+            }
+        }
+        
+        // Draw text with animation
+        function drawText(scene, elapsedTime) {
+            const { sentence, textPosition, textAnimation } = scene;
+            
+            ctx.font = '30px Arial';
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 3;
+            
+            const position = getTextPosition(textPosition, sentence);
+            
+            switch(textAnimation) {
+                case 'typing':
+                    // Calculate how much of the text to show based on elapsed time
+                    const typingDuration = scene.duration * 0.7; // Use 70% of scene time for typing
+                    const charsToShow = Math.floor((elapsedTime / typingDuration) * sentence.length);
+                    const textToShow = sentence.substring(0, charsToShow);
+                    
+                    ctx.strokeText(textToShow, position.x, position.y);
+                    ctx.fillText(textToShow, position.x, position.y);
+                    break;
+                    
+                case 'blink':
+                    // Blink every 0.5 seconds
+                    if (elapsedTime - lastBlinkTime > 0.5) {
+                        blinkState = !blinkState;
+                        lastBlinkTime = elapsedTime;
+                    }
+                    
+                    if (blinkState) {
+                        ctx.strokeText(sentence, position.x, position.y);
+                        ctx.fillText(sentence, position.x, position.y);
+                    }
+                    break;
+                    
+                default:
+                    ctx.strokeText(sentence, position.x, position.y);
+                    ctx.fillText(sentence, position.x, position.y);
+            }
+        }
+        
+        // Draw current scene
+        function drawScene(timestamp) {
+            if (!sceneStartTime) sceneStartTime = timestamp;
+            
+            const currentScene = scenes[currentSceneIndex];
+            const elapsedTime = (timestamp - sceneStartTime) / 1000; // Convert to seconds
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw media (image or video)
+            if (currentScene.media.includes('video')) {
+                // Draw video frame
+                if (videoElement.readyState >= 2) { // HAVE_CURRENT_DATA or better
+                    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+                }
+            } else {
+                // Draw image
+                const img = imageElements[currentScene.index];
+                if (img && img.complete) {
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                }
+            }
+            
+            // Draw text with animation
+            drawText(currentScene, elapsedTime);
+            
+            // Check if scene duration has elapsed
+            if (elapsedTime >= currentScene.duration) {
+                // Move to next scene or end
+                currentSceneIndex++;
+                if (currentSceneIndex < scenes.length) {
+                    sceneStartTime = timestamp;
+                    
+                    // Reset animation states
+                    typingProgress = 0;
+                    blinkState = true;
+                    lastBlinkTime = 0;
+                    
+                    // If next scene is video, start playing
+                    if (scenes[currentSceneIndex].media.includes('video')) {
+                        videoElement.currentTime = 0;
+                        videoElement.play();
+                    }
+                } else {
+                    // End of all scenes
+                    stopPlayer();
+                    return;
+                }
+            }
+            
+            // Continue animation loop if playing
+            if (playerState === 'playing') {
+                animationFrameId = requestAnimationFrame(drawScene);
+            }
+        }
+        
+        // Player controls
+        function playPlayer() {
+            if (playerState === 'stopped') {
+                // Start from beginning
+                currentSceneIndex = 0;
+                sceneStartTime = 0;
+                
+                // Reset animation states
+                typingProgress = 0;
+                blinkState = true;
+                lastBlinkTime = 0;
+                
+                // If first scene is video, start playing
+                if (scenes[currentSceneIndex].media.includes('video')) {
+                    videoElement.currentTime = 0;
+                    videoElement.play();
+                }
+            }
+            
+            playerState = 'playing';
+            animationFrameId = requestAnimationFrame(drawScene);
+        }
+        
+        function pausePlayer() {
+            playerState = 'paused';
+            cancelAnimationFrame(animationFrameId);
+            
+            // Pause video if current scene is video
+            if (scenes[currentSceneIndex].media.includes('video')) {
+                videoElement.pause();
+            }
+        }
+        
+        function stopPlayer() {
+            playerState = 'stopped';
+            cancelAnimationFrame(animationFrameId);
+            currentSceneIndex = 0;
+            sceneStartTime = 0;
+            
+            // Reset video
+            videoElement.pause();
+            videoElement.currentTime = 0;
+            
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        // Event listeners
+        canvas.addEventListener('click', function() {
+            if (playerState === 'playing') {
+                pausePlayer();
+            } else {
+                playPlayer();
+            }
+        });
+        
+        canvas.addEventListener('dblclick', function() {
+            stopPlayer();
+        });
+        
+        // Initialize
+        preloadMedia();
+        
+        // Draw initial frame
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'white';
+        ctx.font = '24px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Click to play', canvas.width / 2, canvas.height / 2);
+    </script>
+</body>
+</html>
